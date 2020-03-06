@@ -1,0 +1,82 @@
+#!/bin/bash
+
+set -o xtrace
+
+#Prerequisites:
+#
+#apache2
+#mysql/mariadb
+#PHP
+#Certbot+Letsencrypt
+
+echo "Please type the name of the site: "
+#VARIABLES
+read SITE
+DBNAME="$(echo DB_$SITE | cut -f1 -d".")"
+DBUSER="$(echo USER_$SITE | cut -f1 -d".")"
+DBPASSWORD="$(openssl rand -base64 12 | tr -d \"=/\")"
+DBPORT="$(mysql -e "SHOW GLOBAL VARIABLES LIKE 'PORT';" | grep "port" | cut -c6-11)"
+PING="$(ping -w 2 $SITE)" || true
+
+laravel_install () {
+mkdir /var/www/$SITE
+cd /var/www/$SITE
+git clone https://github.com/laravel/laravel.git
+cd /var/www/$SITE/laravel
+composer install
+}
+#Database and user creation
+db_config () {
+mysql -e "CREATE DATABASE $DBNAME;"
+mysql -e "CREATE USER '$DBUSER'@'localhost' IDENTIFIED BY '$DBPASSWORD';"
+mysql -e "GRANT ALL PRIVILEGES ON *.* TO '$DBUSER'@'localhost';"
+mysql -e "FLUSH PRIVILEGES;"
+}
+
+laravel_config () {
+sed -i "s/DB_DATABASE=.*/DB_DATABASE=$DBNAME/" /var/www/$SITE/laravel/.env.example
+sed -i "s/DB_USERNAME=.*/DB_USERNAME=$DBUSER/" /var/www/$SITE/laravel/.env.example
+sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$DBPASSWORD/" /var/www/$SITE/laravel/.env.example
+sed -i "s/DB_PORT=.*/DB_PORT=$DBPORT/" /var/www/$SITE/laravel/.env.example
+sed -i "s/APP_URL=.*/APP_URL=localhost:8000/" /var/www/$SITE/laravel/.env.example
+cp /var/www/$SITE/laravel/.env.example /var/www/$SITE/laravel/.env
+}
+#Voyager install and config
+voyager_config () {
+cd /var/www/$SITE/laravel
+composer require tcg/voyager
+find /var/www/$SITE/laravel/config/app.php -type f -exec sed -i "168i TCG\\\\Voyager\\\\VoyagerServiceProvider::class," {} \;
+sed -i "169i //" /var/www/$SITE/laravel/config/app.php
+cd /var/www/$SITE/laravel
+php artisan voyager:install --with-dummy
+}
+#Create and configure the virtual host for apache2
+apache_config () {
+echo "<VirtualHost *:80>" >> /etc/apache2/sites-available/$SITE.conf
+echo "" >> /etc/apache2/sites-available/$SITE.conf
+echo "ServerName $SITE" >> /etc/apache2/sites-available/$SITE.conf
+echo "ServerAdmin webmaster@$SITE" >> /etc/apache2/sites-available/$SITE.conf
+echo "DocumentRoot /var/www/$SITE/laravel/public" >> /etc/apache2/sites-available/$SITE.conf
+echo "" >> /etc/apache2/sites-available/$SITE.conf
+echo "<Directory /var/www/$SITE>" >> /etc/apache2/sites-available/$SITE.conf
+echo "Options -Indexes +FollowSymLinks" >> /etc/apache2/sites-available/$SITE.conf
+echo "AllowOverride All" >> /etc/apache2/sites-available/$SITE.conf
+echo "</Directory>" >> /etc/apache2/sites-available/$SITE.conf
+echo "" >> /etc/apache2/sites-available/$SITE.conf
+echo "</VirtualHost>" >> /etc/apache2/sites-available/$SITE.conf
+a2ensite $SITE
+systemctl reload apache2
+chmod -R 755 /var/www/$SITE
+}
+#Install SSL certificate for the website
+ssl_config () {
+certbot --apache -d $SITE
+}
+
+#Call the functions
+laravel_install
+db_config
+laravel_config
+voyager_config
+apache_config
+ssl_config
