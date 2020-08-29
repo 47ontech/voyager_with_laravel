@@ -72,11 +72,6 @@ echo "" >> /etc/apache2/sites-available/$SITE.conf
 echo "</VirtualHost>" >> /etc/apache2/sites-available/$SITE.conf
 a2ensite $SITE
 systemctl reload apache2
-chown -R www-data:www-data /var/www/$SITE
-find /var/www/$SITE -type f -exec chmod 644 {} \;
-find /var/www/$SITE -type d -exec chmod 775 {} \;
-chgrp -R www-data storage bootstrap/cache
-chmod -R ug+rwx storage bootstrap/cache
 }
 
 #Permissions
