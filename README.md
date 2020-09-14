@@ -8,6 +8,7 @@
 - Git
 - Composer
 - Domain that points to the server
+- Swap 2G (if your server has less than 2GB memory)
 
 # How-To
 
